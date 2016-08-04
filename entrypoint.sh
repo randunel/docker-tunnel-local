@@ -29,4 +29,4 @@ iptables -t nat -A POSTROUTING -j MASQUERADE;
 printf "Setting up ip route\n";
 ip r a $GRE_NETWORK dev gre0;
 
-sleep infinity;
+sleep inf;
