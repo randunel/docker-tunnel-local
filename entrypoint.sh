@@ -48,8 +48,10 @@ printf "Setting up iptables $OPENVPN_IF $MAIN_IF\n";
 iptables -t nat -A POSTROUTING -o $MAIN_IF -j MASQUERADE;
 iptables -t nat -A POSTROUTING -o $OPENVPN_IF -j MASQUERADE;
 
-printf "Setting up ip route\n";
-ip r a $DOCKER_NETWORK dev $DOCKER_IF;
+printf "Setting up ip route to $DOCKER_NETWORK\n";
+ip r a $DOCKER_NETWORK dev $OPENVPN_IF;
+
+printf "tunnel-local ready\n";
 
 tail -f /dev/null &
 TAIL_PID=$!;
