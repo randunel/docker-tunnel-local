@@ -1,6 +1,11 @@
 #!/bin/bash
 
-trap "printf '\nBye.\n'; exit 0;" SIGHUP SIGINT SIGTERM
+forward_all_signals_to() {
+    SIGNALS=(SIGHUP SIGINT SIGTERM SIGQUIT SIGSTOP SIGUSR1 SIGUSR2);
+    for SIGNAL in ${SIGNALS[@]}; do
+        eval "trap \"printf \\\"\\n$0 forwarding signal $SIGNAL to pid $1.\\n\\\"; kill -$SIGNAL $1;\" \"$SIGNAL\";"
+    done;
+}
 
 confirm_env_exists() {
     local NAME=$1;
@@ -9,24 +14,45 @@ confirm_env_exists() {
         exit 1;
     fi
 }
-for env in DOCKER_NETWORK REMOTE_IP LOCAL_IP; do
+
+for env in DOCKER_NETWORK; do
     confirm_env_exists $env;
 done;
 
-if [ -z "$GRE_NETWORK" ]; then
-    GRE_NETWORK="10.160.2.0/24";
-    GRE_IP="10.160.2.2/24";
+if [ -z "$OPENVPN_IF" ]; then
+    OPENVPN_IF="tun0";
 fi
 
-printf "Setting up GRE tunnel\n";
-ip tunnel add gre0 mode gre remote $REMOTE_IP local $LOCAL_IP ttl 255;
-ip link set gre0 up;
-ip addr add $GRE_IP dev gre0;
+exec 3< <(openvpn "$@");
+OPENVPN_PID=$!;
+forward_all_signals_to $OPENVPN_PID;
 
-printf "Setting up iptables\n";
-iptables -t nat -A POSTROUTING -j MASQUERADE;
+while read line; do
+    case $line in
+        *"Initialization Sequence Completed"*)
+            printf "Openvpn started.\n";
+            break;
+            ;;
+        *)
+            printf " $line\n";
+    esac
+done <&3;
+
+# exec 3<&-;
+
+if [ -z "$MAIN_IF" ]; then
+    MAIN_IF="eth0";
+fi
+
+printf "Setting up iptables $OPENVPN_IF $MAIN_IF\n";
+iptables -t nat -A POSTROUTING -o $MAIN_IF -j MASQUERADE;
+iptables -t nat -A POSTROUTING -o $OPENVPN_IF -j MASQUERADE;
 
 printf "Setting up ip route\n";
-ip r a $GRE_NETWORK dev gre0;
+ip r a $DOCKER_NETWORK dev $DOCKER_IF;
 
-sleep inf;
+tail -f /dev/null &
+TAIL_PID=$!;
+trap "kill -9 $TAIL_PID; exit 0;" SIGINT;
+wait;
+
